@@ -39,7 +39,7 @@ def get_sample_rate(device_id):
     return selected_rate
 
 # Function to capture audio in a separate process
-def audio_capture_process(queue, device_id, sample_rate):
+def audio_capture_process(queue, device_id, sample_rate, blocksize):
     adc_time_offset = None
 
     def audio_callback(indata, frames, time, status):
@@ -50,13 +50,13 @@ def audio_capture_process(queue, device_id, sample_rate):
 
         adc_time = time.inputBufferAdcTime
         if adc_time_offset is None:
-            adc_time_offset = current_time - time.currentTime
+            adc_time_offset = current_time - time.currentTime - (blocksize - 1) / sample_rate
 
         adjusted_adc_time = adc_time + adc_time_offset
-        print(f"ADC Time: {adjusted_adc_time}, Current Time: {current_time}, Offset: {adc_time_offset}, Input Buffer Time: {time.inputBufferAdcTime}, Current Time: {time.currentTime}")
+        print(f"ADC Time: {adjusted_adc_time}, Current Time: {current_time}, Offset: {adc_time_offset}, Input Buffer Time: {time.inputBufferAdcTime}, Current Time: {time.currentTime}, Frames: {frames}")
         queue.put((indata.copy(), adjusted_adc_time))
 
-    with sd.InputStream(device=device_id, channels=1, samplerate=sample_rate, callback=audio_callback):
+    with sd.InputStream(device=device_id, channels=1, samplerate=sample_rate, blocksize=blocksize, callback=audio_callback):
         while True:
             pass
 
@@ -96,19 +96,26 @@ if __name__ == "__main__":
     devices = list_audio_devices()
     if not devices:
         print("No input devices found.")
-    else:
+        exit(1)
+    selected_device_id = None
+    while selected_device_id is None:
         selected_device_id = select_device(devices)
-        if selected_device_id is not None:
-            selected_sample_rate = None
-            while selected_sample_rate is None:
-                selected_sample_rate = get_sample_rate(selected_device_id)
+    selected_sample_rate = None
+    while selected_sample_rate is None:
+        selected_sample_rate = get_sample_rate(selected_device_id)
 
-            audio_queue = mp.Queue()
-            audio_process = mp.Process(target=audio_capture_process, args=(audio_queue, selected_device_id, selected_sample_rate))
-            audio_process.start()
+    blocksize = None
+    while blocksize is None or blocksize <= 10 or blocksize > selected_sample_rate:
+        blocksize = simpledialog.askinteger("Blocksize", "Enter blocksize (samples per block):", initialvalue=1024)
 
-            start_spectrogram(audio_queue, selected_sample_rate)
+    print(f"Selected Device: {devices[selected_device_id]['name']} with index {selected_device_id}")
+    print(f"Selected Sample Rate: {selected_sample_rate} Hz")
+    print(f"Selected Blocksize: {blocksize} samples")
 
-            audio_process.join()
-        else:
-            print("No device selected.")
+    audio_queue = mp.Queue()
+    audio_process = mp.Process(target=audio_capture_process, args=(audio_queue, selected_device_id, selected_sample_rate, blocksize))
+    audio_process.start()
+
+    start_spectrogram(audio_queue, selected_sample_rate)
+
+    audio_process.join()
