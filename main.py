@@ -1,7 +1,6 @@
 import sounddevice as sd
 import matplotlib.pyplot as plt
 import numpy as np
-import queue
 import tkinter as tk
 from tkinter import simpledialog
 from datetime import datetime, timedelta
@@ -39,21 +38,33 @@ def get_sample_rate(device_id):
         return None
     return selected_rate
 
-# Queue to hold audio data
-audio_queue = queue.Queue()
+# Function to capture audio in a separate process
+def audio_capture_process(queue, device_id, sample_rate):
+    adc_time_offset = None
 
-# Callback function to put audio data into the queue
-def audio_callback(indata, frames, time, status):
-    if status:
-        print(status)
-    audio_queue.put(indata.copy())
+    def audio_callback(indata, frames, time, status):
+        current_time = datetime.now().timestamp()
+        nonlocal adc_time_offset
+        if status:
+            print(status)
+
+        adc_time = time.inputBufferAdcTime
+        if adc_time_offset is None:
+            adc_time_offset = current_time - time.currentTime
+
+        adjusted_adc_time = adc_time + adc_time_offset
+        print(f"ADC Time: {adjusted_adc_time}, Current Time: {current_time}, Offset: {adc_time_offset}, Input Buffer Time: {time.inputBufferAdcTime}, Current Time: {time.currentTime}")
+        queue.put((indata.copy(), adjusted_adc_time))
+
+    with sd.InputStream(device=device_id, channels=1, samplerate=sample_rate, callback=audio_callback):
+        while True:
+            pass
 
 # Function to start the live spectrogram
-def start_spectrogram(device_id, sample_rate):
+def start_spectrogram(queue, sample_rate):
     plt.ion()
     fig, ax = plt.subplots()
     time_window = 10  # Display the last 10 seconds
-    start_time = datetime.now()
     y = np.linspace(0, sample_rate // 2, 400)
     Z = np.zeros((400, time_window * 100))
 
@@ -62,25 +73,24 @@ def start_spectrogram(device_id, sample_rate):
     ax.set_xlabel('Time')
     ax.set_ylabel('Frequency (Hz)')
 
-    with sd.InputStream(device=device_id, channels=1, samplerate=sample_rate, callback=audio_callback):
-        while True:
-            try:
-                data = audio_queue.get()
-                spectrum = np.abs(np.fft.rfft(data[:, 0]))
-                spectrum = np.interp(np.linspace(0, len(spectrum), 400), np.arange(len(spectrum)), spectrum)
-                Z[:, :-1] = Z[:, 1:]
-                Z[:, -1] = spectrum
+    while True:
+        try:
+            data, adjusted_time = queue.get()
+            spectrum = np.abs(np.fft.rfft(data[:, 0]))
+            spectrum = np.interp(np.linspace(0, len(spectrum), 400), np.arange(len(spectrum)), spectrum)
+            Z[:, :-1] = Z[:, 1:]
+            Z[:, -1] = spectrum
 
-                # Update the x-axis to show real local time
-                current_time = datetime.now()
-                time_labels = [(start_time + timedelta(seconds=i)).strftime("%H:%M:%S") for i in range(-time_window, 0)]
-                ax.set_xticks(np.linspace(0, time_window, len(time_labels)))
-                ax.set_xticklabels(time_labels, rotation=45)
+            # Update the x-axis to show real local time
+            current_time = datetime.fromtimestamp(adjusted_time)
+            time_labels = [(current_time - timedelta(seconds=time_window - i)).strftime("%H:%M:%S") for i in range(time_window)]
+            ax.set_xticks(np.linspace(0, time_window, len(time_labels)))
+            ax.set_xticklabels(time_labels, rotation=45)
 
-                img.set_data(Z)
-                plt.pause(0.01)
-            except KeyboardInterrupt:
-                break
+            img.set_data(Z)
+            plt.pause(0.01)
+        except KeyboardInterrupt:
+            break
 
 if __name__ == "__main__":
     devices = list_audio_devices()
@@ -92,6 +102,13 @@ if __name__ == "__main__":
             selected_sample_rate = None
             while selected_sample_rate is None:
                 selected_sample_rate = get_sample_rate(selected_device_id)
-            start_spectrogram(selected_device_id, selected_sample_rate)
+
+            audio_queue = mp.Queue()
+            audio_process = mp.Process(target=audio_capture_process, args=(audio_queue, selected_device_id, selected_sample_rate))
+            audio_process.start()
+
+            start_spectrogram(audio_queue, selected_sample_rate)
+
+            audio_process.join()
         else:
             print("No device selected.")
