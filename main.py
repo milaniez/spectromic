@@ -2,7 +2,7 @@ import sounddevice as sd
 import matplotlib.pyplot as plt
 import numpy as np
 import tkinter as tk
-from tkinter import simpledialog
+from tkinter import ttk
 from datetime import datetime, timedelta
 import multiprocessing as mp
 
@@ -12,31 +12,43 @@ def list_audio_devices():
     input_devices = [d for d in devices if d['max_input_channels'] > 0]
     return input_devices
 
-# Function to select an audio device using a dialog
-def select_device(devices):
-    root = tk.Tk()
-    root.withdraw()  # Hide the main window
+# Function to display a single dialog to select device, sample rate, and block size
+def get_audio_settings(devices):
+    def on_submit():
+        selected_device.set(device_menu.get())
+        selected_sample_rate.set(sample_rate_entry.get())
+        selected_block_size.set(block_size_entry.get())
+        root.quit()
 
+    root = tk.Tk()
+    root.title("Audio Settings")
+
+    # Dropdown for audio device selection
+    tk.Label(root, text="Select Audio Device:").grid(row=0, column=0)
     device_names = [f"{i}: {d['name']}" for i, d in enumerate(devices)]
-    selected_device = simpledialog.askstring("Select Device", "\n".join(device_names))
-    if selected_device is not None:
-        try:
-            return int(selected_device.split(':')[0])
-        except ValueError:
-            return None
-    return None
+    selected_device = tk.StringVar(value=device_names[0])
+    device_menu = ttk.Combobox(root, textvariable=selected_device, values=device_names)
+    device_menu.grid(row=0, column=1)
 
-# Function to select a sample rate using a dialog
-def get_sample_rate(device_id):
-    root = tk.Tk()
-    root.withdraw()  # Hide the main window
+    # Entry for sample rate
+    tk.Label(root, text="Sample Rate:").grid(row=1, column=0)
+    selected_sample_rate = tk.StringVar(value="48000")
+    sample_rate_entry = tk.Entry(root, textvariable=selected_sample_rate)
+    sample_rate_entry.grid(row=1, column=1)
 
-    selected_rate = simpledialog.askinteger("Type in a Sample Rate", "Type in an integer")
-    try:
-        sd.check_input_settings(device=device_id, samplerate=selected_rate)
-    except Exception:
-        return None
-    return selected_rate
+    # Entry for block size
+    tk.Label(root, text="Block Size:").grid(row=2, column=0)
+    selected_block_size = tk.StringVar(value="1024")
+    block_size_entry = tk.Entry(root, textvariable=selected_block_size)
+    block_size_entry.grid(row=2, column=1)
+
+    # Submit button
+    submit_button = tk.Button(root, text="Submit", command=on_submit)
+    submit_button.grid(row=3, columnspan=2)
+
+    root.mainloop()
+
+    return int(selected_device.get().split(':')[0]), int(selected_sample_rate.get()), int(selected_block_size.get())
 
 # Function to capture audio in a separate process
 def audio_capture_process(queue, device_id, sample_rate, blocksize):
@@ -50,10 +62,10 @@ def audio_capture_process(queue, device_id, sample_rate, blocksize):
 
         adc_time = time.inputBufferAdcTime
         if adc_time_offset is None:
-            adc_time_offset = current_time - time.currentTime - (blocksize - 1) / sample_rate
+            adc_time_offset = current_time - adc_time
 
         adjusted_adc_time = adc_time + adc_time_offset
-        print(f"ADC Time: {adjusted_adc_time}, Current Time: {current_time}, Offset: {adc_time_offset}, Input Buffer Time: {time.inputBufferAdcTime}, Current Time: {time.currentTime}, Frames: {frames}")
+        print(f"ADC Time: {adjusted_adc_time}, Current Time: {current_time}, Offset: {adc_time_offset}, Input Buffer Time: {time.inputBufferAdcTime}, Current Time: {time.currentTime}")
         queue.put((indata.copy(), adjusted_adc_time))
 
     with sd.InputStream(device=device_id, channels=1, samplerate=sample_rate, blocksize=blocksize, callback=audio_callback):
@@ -96,26 +108,17 @@ if __name__ == "__main__":
     devices = list_audio_devices()
     if not devices:
         print("No input devices found.")
-        exit(1)
-    selected_device_id = None
-    while selected_device_id is None:
-        selected_device_id = select_device(devices)
-    selected_sample_rate = None
-    while selected_sample_rate is None:
-        selected_sample_rate = get_sample_rate(selected_device_id)
+    else:
+        selected_device_id, selected_sample_rate, blocksize = get_audio_settings(devices)
 
-    blocksize = None
-    while blocksize is None or blocksize <= 10 or blocksize > selected_sample_rate:
-        blocksize = simpledialog.askinteger("Blocksize", "Enter blocksize (samples per block):", initialvalue=1024)
+        print(f"Selected Device: {devices[selected_device_id]['name']}")
+        print(f"Selected Sample Rate: {selected_sample_rate}")
+        print(f"Selected Block Size: {blocksize}")
 
-    print(f"Selected Device: {devices[selected_device_id]['name']} with index {selected_device_id}")
-    print(f"Selected Sample Rate: {selected_sample_rate} Hz")
-    print(f"Selected Blocksize: {blocksize} samples")
+        audio_queue = mp.Queue()
+        audio_process = mp.Process(target=audio_capture_process, args=(audio_queue, selected_device_id, selected_sample_rate, blocksize))
+        audio_process.start()
 
-    audio_queue = mp.Queue()
-    audio_process = mp.Process(target=audio_capture_process, args=(audio_queue, selected_device_id, selected_sample_rate, blocksize))
-    audio_process.start()
+        start_spectrogram(audio_queue, selected_sample_rate)
 
-    start_spectrogram(audio_queue, selected_sample_rate)
-
-    audio_process.join()
+        audio_process.join()
