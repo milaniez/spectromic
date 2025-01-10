@@ -5,6 +5,7 @@ import queue
 import tkinter as tk
 from tkinter import simpledialog
 from datetime import datetime, timedelta
+import multiprocessing as mp
 
 # Function to list all available input devices
 def list_audio_devices():
@@ -26,6 +27,18 @@ def select_device(devices):
             return None
     return None
 
+# Function to select a sample rate using a dialog
+def get_sample_rate(device_id):
+    root = tk.Tk()
+    root.withdraw()  # Hide the main window
+
+    selected_rate = simpledialog.askinteger("Type in a Sample Rate", "Type in an integer")
+    try:
+        sd.check_input_settings(device=device_id, samplerate=selected_rate)
+    except Exception:
+        return None
+    return selected_rate
+
 # Queue to hold audio data
 audio_queue = queue.Queue()
 
@@ -36,20 +49,20 @@ def audio_callback(indata, frames, time, status):
     audio_queue.put(indata.copy())
 
 # Function to start the live spectrogram
-def start_spectrogram(device_id):
+def start_spectrogram(device_id, sample_rate):
     plt.ion()
     fig, ax = plt.subplots()
     time_window = 10  # Display the last 10 seconds
     start_time = datetime.now()
-    y = np.linspace(0, 8000, 400)
+    y = np.linspace(0, sample_rate // 2, 400)
     Z = np.zeros((400, time_window * 100))
 
-    img = ax.imshow(Z, aspect='auto', origin='lower', extent=[0, time_window, 0, 8000], cmap='magma')
+    img = ax.imshow(Z, aspect='auto', origin='lower', extent=[0, time_window, 0, sample_rate // 2], cmap='magma')
     plt.colorbar(img)
     ax.set_xlabel('Time')
     ax.set_ylabel('Frequency (Hz)')
 
-    with sd.InputStream(device=device_id, channels=1, callback=audio_callback):
+    with sd.InputStream(device=device_id, channels=1, samplerate=sample_rate, callback=audio_callback):
         while True:
             try:
                 data = audio_queue.get()
@@ -76,6 +89,9 @@ if __name__ == "__main__":
     else:
         selected_device_id = select_device(devices)
         if selected_device_id is not None:
-            start_spectrogram(selected_device_id)
+            selected_sample_rate = None
+            while selected_sample_rate is None:
+                selected_sample_rate = get_sample_rate(selected_device_id)
+            start_spectrogram(selected_device_id, selected_sample_rate)
         else:
             print("No device selected.")
