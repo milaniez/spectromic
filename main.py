@@ -53,7 +53,9 @@ def start_spectrogram(device_id):
             try:
                 data = audio_queue.get()
                 spectrum = np.abs(np.fft.rfft(data[:, 0]))
+                spectrum = np.interp(np.linspace(0, len(spectrum), 400), np.arange(len(spectrum)), spectrum)
                 Z[:, :-1] = Z[:, 1:]
+                print("spectrum length", len(spectrum))
                 Z[:, -1] = spectrum[:400]
                 img.set_data(Z)
                 plt.pause(0.01)
