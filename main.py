@@ -8,7 +8,6 @@ import multiprocessing as mp
 import queue as threading_queue
 import wave
 
-
 # Function to list all available input devices
 # Ignoring devices with "Background Music" in their name
 def list_audio_devices():
@@ -21,7 +20,6 @@ def list_audio_devices():
     for i, device in enumerate(input_devices):
         device["index"] = devices.index(device)
     return input_devices
-
 
 # Function to display a single dialog to select device, sample rate, block size, and file name
 def get_audio_settings(devices):
@@ -72,7 +70,6 @@ def get_audio_settings(devices):
         int(selected_block_size.get()),
         selected_file_name.get(),
     )
-
 
 # Function to capture audio in a separate process and save to a .wav file
 def audio_capture_process(out_queue, device_id, sample_rate, blocksize, file_name):
@@ -128,7 +125,6 @@ def audio_capture_process(out_queue, device_id, sample_rate, blocksize, file_nam
 
     wav_file.close()
 
-
 # Function to start the live spectrogram
 def start_spectrogram(queue, sample_rate, block_size):
     plt.ion()
@@ -154,6 +150,7 @@ def start_spectrogram(queue, sample_rate, block_size):
             while not queue.empty():
                 data, adjusted_time = queue.get()
                 spectrum = np.abs(np.fft.rfft(data[:, 0]))
+                spectrum = 10 * np.log10(spectrum + 1e-12)  # Convert amplitude to dB scale
                 print(
                     f"max data {np.max(data)} "
                     f"min data {np.min(data)} "
@@ -182,7 +179,6 @@ def start_spectrogram(queue, sample_rate, block_size):
         print(f"Error: {e}")
     finally:
         plt.close()
-
 
 if __name__ == "__main__":
     devices = list_audio_devices()
