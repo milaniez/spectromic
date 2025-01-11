@@ -23,7 +23,10 @@ def list_audio_devices():
         device["index"] = devices.index(device)
     return input_devices
 
-# Function to display a single dialog to select device, sample rate, block size, file name, max amplitude value, amplitude scaling, frequency range, and WAV scaling parameter
+
+# Function to display a single dialog to select device,
+# sample rate, block size, file name, max amplitude value,
+# amplitude scaling, frequency range, and WAV scaling parameter
 def get_audio_settings(devices):
     def on_submit():
         selected_device.set(device_menu.get())
@@ -86,9 +89,7 @@ def get_audio_settings(devices):
     tk.Label(root, text="Amplitude Scaling:").grid(row=7, column=0)
     amplitude_scaling_var = tk.StringVar(value="Linear")
     amplitude_scaling_menu = ttk.Combobox(
-        root,
-        textvariable=amplitude_scaling_var,
-        values=["Logarithmic", "Linear"]
+        root, textvariable=amplitude_scaling_var, values=["Logarithmic", "Linear"]
     )
     amplitude_scaling_menu.grid(row=7, column=1)
 
@@ -116,10 +117,16 @@ def get_audio_settings(devices):
         int(selected_wav_scaling.get()),
     )
 
+
 # Function to capture audio in a separate process and save to a .wav file
-def audio_capture_process(out_queue, device_id, sample_rate, blocksize, file_name, wav_scaling):
+def audio_capture_process(
+    out_queue, device_id, sample_rate, blocksize, file_name, wav_scaling
+):
     print(
-        f"Device ID: {device_id}, Sample Rate: {sample_rate}, Block Size: {blocksize}, WAV Scaling: {wav_scaling}"
+        f"Device ID: {device_id}, "
+        f"Sample Rate: {sample_rate}, "
+        f"Block Size: {blocksize}, "
+        f"WAV Scaling: {wav_scaling}"
     )
     internal_queue = threading_queue.Queue()
     adc_time_offset = None
@@ -171,8 +178,11 @@ def audio_capture_process(out_queue, device_id, sample_rate, blocksize, file_nam
 
     wav_file.close()
 
+
 # Function to start the live spectrogram
-def start_spectrogram(queue, sample_rate, block_size, max_amplitude, min_freq, max_freq, scaling):
+def start_spectrogram(
+    queue, sample_rate, block_size, max_amplitude, min_freq, max_freq, scaling
+):
     plt.ion()
     fig, ax = plt.subplots()
     time_window = 10  # Display the last 10 seconds
@@ -197,14 +207,16 @@ def start_spectrogram(queue, sample_rate, block_size, max_amplitude, min_freq, m
     ax.set_ylabel("Frequency (Hz)")
 
     start_time = None
-    last_time  = None
+    last_time = None
     try:
         while plt.fignum_exists(fig.number):
             while not queue.empty():
                 data, adjusted_time = queue.get()
                 spectrum = np.abs(np.fft.rfft(data[:, 0]))[min_bin:max_bin]
                 if scaling == "Logarithmic":
-                    spectrum = 10 * np.log10(spectrum + 1e-12)  # Convert amplitude to dB scale
+                    spectrum = 10 * np.log10(
+                        spectrum + 1e-12
+                    )  # Convert amplitude to dB scale
 
                 print(
                     f"max data {np.max(data)} "
@@ -237,9 +249,14 @@ def start_spectrogram(queue, sample_rate, block_size, max_amplitude, min_freq, m
     except Exception as e:
         print(f"Error: {e}")
     finally:
-        total_seconds_displayed = last_time - start_time + block_size/sample_rate if start_time else 0
-        print(f"Total number of seconds displayed: {total_seconds_displayed:.2f} seconds")
+        total_seconds_displayed = (
+            last_time - start_time + block_size / sample_rate if start_time else 0
+        )
+        print(
+            f"Total number of seconds displayed: {total_seconds_displayed:.2f} seconds"
+        )
         plt.close()
+
 
 if __name__ == "__main__":
     devices = list_audio_devices()
@@ -247,9 +264,17 @@ if __name__ == "__main__":
         print("No input devices found.")
         exit(1)
 
-    selected_device_id, selected_sample_rate, blocksize, file_name, max_amplitude, min_frequency, max_frequency, scaling, wav_scaling = get_audio_settings(
-        devices
-    )
+    (
+        selected_device_id,
+        selected_sample_rate,
+        blocksize,
+        file_name,
+        max_amplitude,
+        min_frequency,
+        max_frequency,
+        scaling,
+        wav_scaling,
+    ) = get_audio_settings(devices)
 
     selected_device = devices[
         [i for i in range(len(devices)) if devices[i]["index"] == selected_device_id][0]
@@ -279,4 +304,12 @@ if __name__ == "__main__":
     audio_process.daemon = True
     audio_process.start()
 
-    start_spectrogram(audio_queue, selected_sample_rate, blocksize, max_amplitude, min_frequency, max_frequency, scaling)
+    start_spectrogram(
+        audio_queue,
+        selected_sample_rate,
+        blocksize,
+        max_amplitude,
+        min_frequency,
+        max_frequency,
+        scaling,
+    )
