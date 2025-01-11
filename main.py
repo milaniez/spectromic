@@ -1,12 +1,14 @@
-import sounddevice as sd
-import matplotlib.pyplot as plt
-import numpy as np
-import tkinter as tk
-from tkinter import ttk
-from datetime import datetime, timedelta
 import multiprocessing as mp
 import queue as threading_queue
+import tkinter as tk
 import wave
+from datetime import datetime, timedelta
+from tkinter import ttk
+
+import matplotlib.pyplot as plt
+import numpy as np
+import sounddevice as sd
+
 
 # Function to list all available input devices
 # Ignoring devices with "Background Music" in their name
@@ -64,7 +66,7 @@ def get_audio_settings(devices):
 
     # Entry for max amplitude value
     tk.Label(root, text="Max Amplitude:").grid(row=4, column=0)
-    selected_max_amplitude = tk.StringVar(value="100")
+    selected_max_amplitude = tk.StringVar(value="10")
     max_amplitude_entry = tk.Entry(root, textvariable=selected_max_amplitude)
     max_amplitude_entry.grid(row=4, column=1)
 
@@ -82,7 +84,7 @@ def get_audio_settings(devices):
 
     # Option for amplitude scaling
     tk.Label(root, text="Amplitude Scaling:").grid(row=7, column=0)
-    amplitude_scaling_var = tk.StringVar(value="Logarithmic")
+    amplitude_scaling_var = tk.StringVar(value="Linear")
     amplitude_scaling_menu = ttk.Combobox(
         root,
         textvariable=amplitude_scaling_var,
@@ -92,7 +94,7 @@ def get_audio_settings(devices):
 
     # Entry for WAV scaling parameter
     tk.Label(root, text="WAV Scaling Parameter:").grid(row=8, column=0)
-    selected_wav_scaling = tk.StringVar(value="1000")
+    selected_wav_scaling = tk.StringVar(value="4000")
     wav_scaling_entry = tk.Entry(root, textvariable=selected_wav_scaling)
     wav_scaling_entry.grid(row=8, column=1)
 
