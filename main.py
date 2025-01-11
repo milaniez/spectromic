@@ -21,7 +21,7 @@ def list_audio_devices():
         device["index"] = devices.index(device)
     return input_devices
 
-# Function to display a single dialog to select device, sample rate, block size, file name, max amplitude value, amplitude scaling, and frequency range
+# Function to display a single dialog to select device, sample rate, block size, file name, max amplitude value, amplitude scaling, frequency range, and WAV scaling parameter
 def get_audio_settings(devices):
     def on_submit():
         selected_device.set(device_menu.get())
@@ -31,6 +31,7 @@ def get_audio_settings(devices):
         selected_max_amplitude.set(max_amplitude_entry.get())
         selected_min_frequency.set(min_frequency_entry.get())
         selected_max_frequency.set(max_frequency_entry.get())
+        selected_wav_scaling.set(wav_scaling_entry.get())
         root.destroy()
 
     root = tk.Tk()
@@ -89,9 +90,15 @@ def get_audio_settings(devices):
     )
     amplitude_scaling_menu.grid(row=7, column=1)
 
+    # Entry for WAV scaling parameter
+    tk.Label(root, text="WAV Scaling Parameter:").grid(row=8, column=0)
+    selected_wav_scaling = tk.StringVar(value="1000")
+    wav_scaling_entry = tk.Entry(root, textvariable=selected_wav_scaling)
+    wav_scaling_entry.grid(row=8, column=1)
+
     # Submit button
     submit_button = tk.Button(root, text="Submit", command=on_submit)
-    submit_button.grid(row=8, columnspan=2)
+    submit_button.grid(row=9, columnspan=2)
 
     root.mainloop()
 
@@ -104,19 +111,20 @@ def get_audio_settings(devices):
         float(selected_min_frequency.get()),
         float(selected_max_frequency.get()),
         amplitude_scaling_var.get(),
+        int(selected_wav_scaling.get()),
     )
 
 # Function to capture audio in a separate process and save to a .wav file
-def audio_capture_process(out_queue, device_id, sample_rate, blocksize, file_name):
+def audio_capture_process(out_queue, device_id, sample_rate, blocksize, file_name, wav_scaling):
     print(
-        f"Device ID: {device_id}, Sample Rate: {sample_rate}, Block Size: {blocksize}"
+        f"Device ID: {device_id}, Sample Rate: {sample_rate}, Block Size: {blocksize}, WAV Scaling: {wav_scaling}"
     )
     internal_queue = threading_queue.Queue()
     adc_time_offset = None
 
     wav_file = wave.open(file_name, "wb")
     wav_file.setnchannels(1)
-    wav_file.setsampwidth(2)  # Assuming 16-bit audio
+    wav_file.setsampwidth(2)  # 16-bit audio
     wav_file.setframerate(sample_rate)
 
     def audio_callback(indata, frames, time, status):
@@ -137,8 +145,9 @@ def audio_capture_process(out_queue, device_id, sample_rate, blocksize, file_nam
             f"Input Buffer Time: {time.inputBufferAdcTime}, "
             f"Current Time: {time.currentTime}"
         )
+        scaled_data = np.clip(indata * wav_scaling, -32768, 32767).astype(np.int16)
         internal_queue.put((indata.copy(), adjusted_adc_time))
-        wav_file.writeframes(indata.tobytes())
+        wav_file.writeframes(scaled_data.tobytes())
 
     def send_data():
         while True:
@@ -232,7 +241,7 @@ if __name__ == "__main__":
         print("No input devices found.")
         exit(1)
 
-    selected_device_id, selected_sample_rate, blocksize, file_name, max_amplitude, min_frequency, max_frequency, scaling = get_audio_settings(
+    selected_device_id, selected_sample_rate, blocksize, file_name, max_amplitude, min_frequency, max_frequency, scaling, wav_scaling = get_audio_settings(
         devices
     )
 
@@ -247,6 +256,7 @@ if __name__ == "__main__":
     print(f"Max Amplitude for Spectrogram: {max_amplitude}")
     print(f"Min Frequency: {min_frequency} Hz, Max Frequency: {max_frequency} Hz")
     print(f"Amplitude Scaling: {scaling}")
+    print(f"WAV Scaling: {wav_scaling}")
 
     audio_queue = mp.Queue()
     audio_process = mp.Process(
@@ -257,6 +267,7 @@ if __name__ == "__main__":
             selected_sample_rate,
             blocksize,
             file_name,
+            wav_scaling,
         ),
     )
     audio_process.daemon = True
