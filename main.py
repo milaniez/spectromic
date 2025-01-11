@@ -53,6 +53,7 @@ def get_audio_settings(devices):
 
 # Function to capture audio in a separate process
 def audio_capture_process(out_queue, device_id, sample_rate, blocksize):
+    print(f"Device ID: {device_id}, Sample Rate: {sample_rate}, Block Size: {blocksize}")
     internal_queue = threading_queue.Queue()
     adc_time_offset = None
 
@@ -100,11 +101,8 @@ def start_spectrogram(queue, sample_rate, block_size):
             while not queue.empty():
                 data, adjusted_time = queue.get()
                 spectrum = np.abs(np.fft.rfft(data[:, 0]))
-                print(f"data len: {len(data)}, spectrum len: {len(spectrum)}")
                 Z[:, :-1] = Z[:, 1:]
                 Z[:, -1] = spectrum
-
-                print(f"Z shape: {Z.shape}")
 
                 # Update the x-axis to show real local time
                 current_time = datetime.fromtimestamp(adjusted_time)
