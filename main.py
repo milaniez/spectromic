@@ -21,7 +21,7 @@ def list_audio_devices():
         device["index"] = devices.index(device)
     return input_devices
 
-# Function to display a single dialog to select device, sample rate, block size, file name, max amplitude value, and amplitude scaling
+# Function to display a single dialog to select device, sample rate, block size, file name, max amplitude value, amplitude scaling, and frequency range
 def get_audio_settings(devices):
     def on_submit():
         selected_device.set(device_menu.get())
@@ -29,6 +29,8 @@ def get_audio_settings(devices):
         selected_block_size.set(block_size_entry.get())
         selected_file_name.set(file_name_entry.get())
         selected_max_amplitude.set(max_amplitude_entry.get())
+        selected_min_frequency.set(min_frequency_entry.get())
+        selected_max_frequency.set(max_frequency_entry.get())
         root.destroy()
 
     root = tk.Tk()
@@ -65,19 +67,31 @@ def get_audio_settings(devices):
     max_amplitude_entry = tk.Entry(root, textvariable=selected_max_amplitude)
     max_amplitude_entry.grid(row=4, column=1)
 
+    # Entry for minimum frequency
+    tk.Label(root, text="Min Frequency (Hz):").grid(row=5, column=0)
+    selected_min_frequency = tk.StringVar(value="0")
+    min_frequency_entry = tk.Entry(root, textvariable=selected_min_frequency)
+    min_frequency_entry.grid(row=5, column=1)
+
+    # Entry for maximum frequency
+    tk.Label(root, text="Max Frequency (Hz):").grid(row=6, column=0)
+    selected_max_frequency = tk.StringVar(value="24000")
+    max_frequency_entry = tk.Entry(root, textvariable=selected_max_frequency)
+    max_frequency_entry.grid(row=6, column=1)
+
     # Option for amplitude scaling
-    tk.Label(root, text="Amplitude Scaling:").grid(row=5, column=0)
+    tk.Label(root, text="Amplitude Scaling:").grid(row=7, column=0)
     amplitude_scaling_var = tk.StringVar(value="Logarithmic")
     amplitude_scaling_menu = ttk.Combobox(
         root,
         textvariable=amplitude_scaling_var,
         values=["Logarithmic", "Linear"]
     )
-    amplitude_scaling_menu.grid(row=5, column=1)
+    amplitude_scaling_menu.grid(row=7, column=1)
 
     # Submit button
     submit_button = tk.Button(root, text="Submit", command=on_submit)
-    submit_button.grid(row=6, columnspan=2)
+    submit_button.grid(row=8, columnspan=2)
 
     root.mainloop()
 
@@ -87,6 +101,8 @@ def get_audio_settings(devices):
         int(selected_block_size.get()),
         selected_file_name.get(),
         float(selected_max_amplitude.get()),
+        float(selected_min_frequency.get()),
+        float(selected_max_frequency.get()),
         amplitude_scaling_var.get(),
     )
 
@@ -145,18 +161,22 @@ def audio_capture_process(out_queue, device_id, sample_rate, blocksize, file_nam
     wav_file.close()
 
 # Function to start the live spectrogram
-def start_spectrogram(queue, sample_rate, block_size, max_amplitude, scaling):
+def start_spectrogram(queue, sample_rate, block_size, max_amplitude, min_freq, max_freq, scaling):
     plt.ion()
     fig, ax = plt.subplots()
     time_window = 10  # Display the last 10 seconds
-    Z = np.zeros((block_size // 2 + 1, time_window * sample_rate // block_size))
+    freq_bins = np.fft.rfftfreq(block_size, 1 / sample_rate)
+    min_bin = np.searchsorted(freq_bins, min_freq)
+    max_bin = np.searchsorted(freq_bins, max_freq)
+
+    Z = np.zeros((max_bin - min_bin, time_window * sample_rate // block_size))
 
     min_value = -10 if scaling == "Logarithmic" else 0
     img = ax.imshow(
         Z,
         aspect="auto",
         origin="lower",
-        extent=[0, time_window, 0, sample_rate // 2],
+        extent=[0, time_window, min_freq, max_freq],
         cmap="magma",
         vmin=min_value,
         vmax=max_amplitude,
@@ -170,12 +190,9 @@ def start_spectrogram(queue, sample_rate, block_size, max_amplitude, scaling):
         while plt.fignum_exists(fig.number):
             while not queue.empty():
                 data, adjusted_time = queue.get()
-                spectrum = np.abs(np.fft.rfft(data[:, 0]))
+                spectrum = np.abs(np.fft.rfft(data[:, 0]))[min_bin:max_bin]
                 if scaling == "Logarithmic":
                     spectrum = 10 * np.log10(spectrum + 1e-12)  # Convert amplitude to dB scale
-
-                if start_time is None:
-                    start_time = adjusted_time
 
                 print(
                     f"max data {np.max(data)} "
@@ -215,7 +232,7 @@ if __name__ == "__main__":
         print("No input devices found.")
         exit(1)
 
-    selected_device_id, selected_sample_rate, blocksize, file_name, max_amplitude, scaling = get_audio_settings(
+    selected_device_id, selected_sample_rate, blocksize, file_name, max_amplitude, min_frequency, max_frequency, scaling = get_audio_settings(
         devices
     )
 
@@ -228,6 +245,7 @@ if __name__ == "__main__":
     print(f"Selected Block Size: {blocksize}")
     print(f"Saving to file: {file_name}")
     print(f"Max Amplitude for Spectrogram: {max_amplitude}")
+    print(f"Min Frequency: {min_frequency} Hz, Max Frequency: {max_frequency} Hz")
     print(f"Amplitude Scaling: {scaling}")
 
     audio_queue = mp.Queue()
@@ -244,4 +262,4 @@ if __name__ == "__main__":
     audio_process.daemon = True
     audio_process.start()
 
-    start_spectrogram(audio_queue, selected_sample_rate, blocksize, max_amplitude, scaling)
+    start_spectrogram(audio_queue, selected_sample_rate, blocksize, max_amplitude, min_frequency, max_frequency, scaling)
