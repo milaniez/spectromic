@@ -195,6 +195,7 @@ def start_spectrogram(queue, sample_rate, block_size, max_amplitude, min_freq, m
     ax.set_ylabel("Frequency (Hz)")
 
     start_time = None
+    last_time  = None
     try:
         while plt.fignum_exists(fig.number):
             while not queue.empty():
@@ -211,6 +212,10 @@ def start_spectrogram(queue, sample_rate, block_size, max_amplitude, min_freq, m
                 )
                 Z[:, :-1] = Z[:, 1:]
                 Z[:, -1] = spectrum
+
+                if start_time is None:
+                    start_time = adjusted_time
+                last_time = adjusted_time
 
                 # Update the x-axis to show real local time
                 current_time = datetime.fromtimestamp(adjusted_time)
@@ -230,8 +235,7 @@ def start_spectrogram(queue, sample_rate, block_size, max_amplitude, min_freq, m
     except Exception as e:
         print(f"Error: {e}")
     finally:
-        end_time = datetime.now().timestamp()
-        total_seconds_displayed = end_time - start_time if start_time else 0
+        total_seconds_displayed = last_time - start_time + block_size/sample_rate if start_time else 0
         print(f"Total number of seconds displayed: {total_seconds_displayed:.2f} seconds")
         plt.close()
 
