@@ -173,6 +173,8 @@ def audio_capture_process(
         samplerate=sample_rate,
         blocksize=blocksize,
         callback=audio_callback,
+        clip_off=True,
+        dither_off=True,
     ):
         send_data()
 
