@@ -147,13 +147,13 @@ def audio_capture_process(
             adc_time_offset = current_time - adc_time
 
         adjusted_adc_time = adc_time + adc_time_offset
-        print(
-            f"ADC Time: {adjusted_adc_time}, "
-            f"Current Time: {current_time}, "
-            f"Offset: {adc_time_offset}, "
-            f"Input Buffer Time: {time.inputBufferAdcTime}, "
-            f"Current Time: {time.currentTime}"
-        )
+        # print(
+        #     f"ADC Time: {adjusted_adc_time}, "
+        #     f"Current Time: {current_time}, "
+        #     f"Offset: {adc_time_offset}, "
+        #     f"Input Buffer Time: {time.inputBufferAdcTime}, "
+        #     f"Current Time: {time.currentTime}"
+        # )
         scaled_data = np.clip(indata * wav_scaling, -32768, 32767).astype(np.int16)
         internal_queue.put((indata.copy(), adjusted_adc_time))
         wav_file.writeframes(scaled_data.tobytes())
@@ -219,13 +219,22 @@ def start_spectrogram(
                     spectrum = 10 * np.log10(
                         spectrum + 1e-12
                     )  # Convert amplitude to dB scale
+                elif np.max(spectrum) > max_amplitude:
+                    print("\033[91m\033[1mMax amplitude exceeded\033[0m")
+                    print(
+                        f"max data {np.max(data)} "
+                        f"min data {np.min(data)} "
+                        f"max spectrum {np.max(spectrum)} "
+                        f"min spectrum {np.min(spectrum)}"
+                    )
 
-                print(
-                    f"max data {np.max(data)} "
-                    f"min data {np.min(data)} "
-                    f"max spectrum {np.max(spectrum)} "
-                    f"min spectrum {np.min(spectrum)}"
-                )
+                # print(
+                #     f"max data {np.max(data)} "
+                #     f"min data {np.min(data)} "
+                #     f"max spectrum {np.max(spectrum)} "
+                #     f"min spectrum {np.min(spectrum)}"
+                # )
+
                 Z[:, :-1] = Z[:, 1:]
                 Z[:, -1] = spectrum
 
