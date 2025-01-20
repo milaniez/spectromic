@@ -1,12 +1,15 @@
 import multiprocessing as mp
+import os
+import pathlib
 import queue as threading_queue
+import re
 import tkinter as tk
-import wave
 from datetime import datetime, timedelta
 from tkinter import ttk
 
 import matplotlib.pyplot as plt
 import numpy as np
+import scipy.io.wavfile as sp_wavfile
 import sounddevice as sd
 
 
@@ -32,11 +35,12 @@ def get_audio_settings(devices):
         selected_device.set(device_menu.get())
         selected_sample_rate.set(sample_rate_entry.get())
         selected_block_size.set(block_size_entry.get())
-        selected_file_name.set(file_name_entry.get())
+        selected_experiment_name.set(experiment_name_entry.get())
+        selected_drone_name.set(drone_name_entry.get())
         selected_max_amplitude.set(max_amplitude_entry.get())
         selected_min_frequency.set(min_frequency_entry.get())
         selected_max_frequency.set(max_frequency_entry.get())
-        selected_wav_scaling.set(wav_scaling_entry.get())
+        selected_length.set(length_entry.get())
         root.destroy()
 
     root = tk.Tk()
@@ -61,47 +65,53 @@ def get_audio_settings(devices):
     block_size_entry = tk.Entry(root, textvariable=selected_block_size)
     block_size_entry.grid(row=2, column=1)
 
-    # Entry for file name
-    tk.Label(root, text="File Name:").grid(row=3, column=0)
-    selected_file_name = tk.StringVar(value="output.wav")
-    file_name_entry = tk.Entry(root, textvariable=selected_file_name)
-    file_name_entry.grid(row=3, column=1)
+    # Entry for experiment name
+    tk.Label(root, text="Experiment Name:").grid(row=3, column=0)
+    selected_experiment_name = tk.StringVar(value="experiment")
+    experiment_name_entry = tk.Entry(root, textvariable=selected_experiment_name)
+    experiment_name_entry.grid(row=3, column=1)
+
+    # Entry for drone name
+    tk.Label(root, text="Drone Name:").grid(row=4, column=0)
+    selected_drone_name = tk.StringVar(value="drone")
+    drone_name_entry = tk.Entry(root, textvariable=selected_drone_name)
+    drone_name_entry.grid(row=4, column=1)
 
     # Entry for max amplitude value
-    tk.Label(root, text="Max Amplitude:").grid(row=4, column=0)
+    tk.Label(root, text="Max Amplitude:").grid(row=5, column=0)
     selected_max_amplitude = tk.StringVar(value="10")
     max_amplitude_entry = tk.Entry(root, textvariable=selected_max_amplitude)
-    max_amplitude_entry.grid(row=4, column=1)
+    max_amplitude_entry.grid(row=5, column=1)
 
     # Entry for minimum frequency
-    tk.Label(root, text="Min Frequency (Hz):").grid(row=5, column=0)
+    tk.Label(root, text="Min Frequency (Hz):").grid(row=6, column=0)
     selected_min_frequency = tk.StringVar(value="0")
     min_frequency_entry = tk.Entry(root, textvariable=selected_min_frequency)
-    min_frequency_entry.grid(row=5, column=1)
+    min_frequency_entry.grid(row=6, column=1)
 
     # Entry for maximum frequency
-    tk.Label(root, text="Max Frequency (Hz):").grid(row=6, column=0)
+    tk.Label(root, text="Max Frequency (Hz):").grid(row=7, column=0)
     selected_max_frequency = tk.StringVar(value="24000")
     max_frequency_entry = tk.Entry(root, textvariable=selected_max_frequency)
-    max_frequency_entry.grid(row=6, column=1)
+    max_frequency_entry.grid(row=7, column=1)
 
     # Option for amplitude scaling
-    tk.Label(root, text="Amplitude Scaling:").grid(row=7, column=0)
+    tk.Label(root, text="Amplitude Scaling:").grid(row=8, column=0)
     amplitude_scaling_var = tk.StringVar(value="Linear")
     amplitude_scaling_menu = ttk.Combobox(
         root, textvariable=amplitude_scaling_var, values=["Logarithmic", "Linear"]
     )
-    amplitude_scaling_menu.grid(row=7, column=1)
+    amplitude_scaling_menu.grid(row=8, column=1)
 
-    # Entry for WAV scaling parameter
-    tk.Label(root, text="WAV Scaling Parameter:").grid(row=8, column=0)
-    selected_wav_scaling = tk.StringVar(value="4000")
-    wav_scaling_entry = tk.Entry(root, textvariable=selected_wav_scaling)
-    wav_scaling_entry.grid(row=8, column=1)
+    # Entry for length
+    tk.Label(root, text="Length (seconds):").grid(row=9, column=0)
+    selected_length = tk.StringVar(value="60")
+    length_entry = tk.Entry(root, textvariable=selected_length)
+    length_entry.grid(row=9, column=1)
 
     # Submit button
     submit_button = tk.Button(root, text="Submit", command=on_submit)
-    submit_button.grid(row=9, columnspan=2)
+    submit_button.grid(row=10, columnspan=2)
 
     root.mainloop()
 
@@ -109,32 +119,23 @@ def get_audio_settings(devices):
         int(selected_device.get().split(":")[0]),
         int(selected_sample_rate.get()),
         int(selected_block_size.get()),
-        selected_file_name.get(),
+        selected_experiment_name.get(),
+        selected_drone_name.get(),
         float(selected_max_amplitude.get()),
         float(selected_min_frequency.get()),
         float(selected_max_frequency.get()),
         amplitude_scaling_var.get(),
-        int(selected_wav_scaling.get()),
+        int(selected_length.get()),
     )
 
 
 # Function to capture audio in a separate process and save to a .wav file
-def audio_capture_process(
-    out_queue, device_id, sample_rate, blocksize, file_name, wav_scaling
-):
+def audio_capture_process(out_queue, device_id, sample_rate, blocksize):
     print(
-        f"Device ID: {device_id}, "
-        f"Sample Rate: {sample_rate}, "
-        f"Block Size: {blocksize}, "
-        f"WAV Scaling: {wav_scaling}"
+        f"Device ID: {device_id}, Sample Rate: {sample_rate}, Block Size: {blocksize}, "
     )
     internal_queue = threading_queue.Queue()
     adc_time_offset = None
-
-    wav_file = wave.open(file_name, "wb")
-    wav_file.setnchannels(1)
-    wav_file.setsampwidth(2)  # 16-bit audio
-    wav_file.setframerate(sample_rate)
 
     def audio_callback(indata, frames, time, status):
         current_time = datetime.now().timestamp()
@@ -154,9 +155,7 @@ def audio_capture_process(
         #     f"Input Buffer Time: {time.inputBufferAdcTime}, "
         #     f"Current Time: {time.currentTime}"
         # )
-        scaled_data = np.clip(indata * wav_scaling, -32768, 32767).astype(np.int16)
         internal_queue.put((indata.copy(), adjusted_adc_time))
-        wav_file.writeframes(scaled_data.tobytes())
 
     def send_data():
         while True:
@@ -178,12 +177,18 @@ def audio_capture_process(
     ):
         send_data()
 
-    wav_file.close()
-
 
 # Function to start the live spectrogram
 def start_spectrogram(
-    queue, sample_rate, block_size, max_amplitude, min_freq, max_freq, scaling
+    queue,
+    sample_rate,
+    block_size,
+    max_amplitude,
+    min_freq,
+    max_freq,
+    scaling,
+    experiment_folder_path,
+    length,
 ):
     plt.ion()
     fig, ax = plt.subplots()
@@ -191,6 +196,11 @@ def start_spectrogram(
     freq_bins = np.fft.rfftfreq(block_size, 1 / sample_rate)
     min_bin = np.searchsorted(freq_bins, min_freq)
     max_bin = np.searchsorted(freq_bins, max_freq)
+
+    wave_file_path = os.path.join(experiment_folder_path, "output.wav")
+    all_data = np.zeros(sample_rate * length, dtype=np.float32)
+    print(f"shape of all_data: {np.shape(all_data)}")
+    all_data_len = 0
 
     Z = np.zeros((max_bin - min_bin, time_window * sample_rate // block_size))
 
@@ -209,11 +219,17 @@ def start_spectrogram(
     ax.set_ylabel("Frequency (Hz)")
 
     start_time = None
+    last_plot_save_time = None
+    last_plot_save_no = 0
     last_time = None
     try:
-        while plt.fignum_exists(fig.number):
-            while not queue.empty():
+        while plt.fignum_exists(fig.number) and all_data_len < len(all_data):
+            while not queue.empty() and all_data_len < len(all_data):
                 data, adjusted_time = queue.get()
+                print(f"shape of data: {np.shape(data)}")
+                all_data[all_data_len : all_data_len + len(data)] = data.flatten()
+                all_data_len += len(data)
+                print(np.shape(data))
                 spectrum = np.abs(np.fft.rfft(data[:, 0]))[min_bin:max_bin]
                 if scaling == "Logarithmic":
                     spectrum = 10 * np.log10(
@@ -240,6 +256,7 @@ def start_spectrogram(
 
                 if start_time is None:
                     start_time = adjusted_time
+                    last_plot_save_time = adjusted_time
                 last_time = adjusted_time
 
                 # Update the x-axis to show real local time
@@ -254,12 +271,23 @@ def start_spectrogram(
                 ax.set_xticklabels(time_labels, rotation=45)
 
                 img.set_data(Z)
+
+                if last_time - last_plot_save_time >= 1.0:
+                    plot_file_path = os.path.join(
+                        experiment_folder_path,
+                        f"plot_{last_plot_save_no}.png",
+                    )
+                    plt.savefig(plot_file_path)
+                    last_plot_save_no += 1
+                    last_plot_save_time = last_time
             plt.pause(0.01)
     except KeyboardInterrupt:
         pass
     except Exception as e:
         print(f"Error: {e}")
     finally:
+        print("\033[93m\033[1mSaving...\033[0m")
+        sp_wavfile.write(wave_file_path, sample_rate, all_data[0:all_data_len])
         total_seconds_displayed = (
             last_time - start_time + block_size / sample_rate if start_time else 0
         )
@@ -267,6 +295,51 @@ def start_spectrogram(
             f"Total number of seconds displayed: {total_seconds_displayed:.2f} seconds"
         )
         plt.close()
+
+
+def is_valid_filename(filename):
+    # Define the set of invalid characters for Windows and Linux
+    invalid_characters = (
+        r'[<>:"/\\|?*\x00-\x1F]'  # Includes control characters (\x00-\x1F)
+    )
+    reserved_names = {
+        "CON",
+        "PRN",
+        "AUX",
+        "NUL",
+        "COM1",
+        "COM2",
+        "COM3",
+        "COM4",
+        "COM5",
+        "COM6",
+        "COM7",
+        "COM8",
+        "COM9",
+        "LPT1",
+        "LPT2",
+        "LPT3",
+        "LPT4",
+        "LPT5",
+        "LPT6",
+        "LPT7",
+        "LPT8",
+        "LPT9",
+    }
+
+    # Check for invalid characters
+    if re.search(invalid_characters, filename):
+        return False
+
+    # Check for reserved names (case-insensitive)
+    if filename.upper() in reserved_names:
+        return False
+
+    # Check if the filename is "." or ".."
+    if filename in {".", ".."}:
+        return False
+
+    return True
 
 
 if __name__ == "__main__":
@@ -279,13 +352,38 @@ if __name__ == "__main__":
         selected_device_id,
         selected_sample_rate,
         blocksize,
-        file_name,
+        experiment_name,
+        drone_name,
         max_amplitude,
         min_frequency,
         max_frequency,
         scaling,
-        wav_scaling,
+        length,
     ) = get_audio_settings(devices)
+
+    if not is_valid_filename(experiment_name):
+        print("Invalid experiment name. Please choose a different name.")
+        exit(1)
+
+    if not is_valid_filename(drone_name):
+        print("Invalid drone name. Please choose a different name.")
+        exit(1)
+
+    if selected_sample_rate % blocksize != 0:
+        print("Sample rate must be a multiple of block size.")
+        exit(1)
+
+    experiment_folder_name = f"{datetime.now().strftime('%Y%m%d-%H%M%S')}_"
+    experiment_folder_name += f"{experiment_name.replace(' ', '-')}_"
+    experiment_folder_name += f"{drone_name.replace(' ', '-')}"
+
+    experiment_folder_path = os.path.join(
+        os.getcwd(),
+        "experiments",
+        experiment_folder_name,
+    )
+
+    pathlib.Path(experiment_folder_path).mkdir(parents=True, exist_ok=True)
 
     selected_device = devices[
         [i for i in range(len(devices)) if devices[i]["index"] == selected_device_id][0]
@@ -294,11 +392,11 @@ if __name__ == "__main__":
     print(f"Selected Device: {selected_device['name']} at index {selected_device_id}")
     print(f"Selected Sample Rate: {selected_sample_rate}")
     print(f"Selected Block Size: {blocksize}")
-    print(f"Saving to file: {file_name}")
+    print(f"Experiment Folder: {experiment_folder_name}")
     print(f"Max Amplitude for Spectrogram: {max_amplitude}")
     print(f"Min Frequency: {min_frequency} Hz, Max Frequency: {max_frequency} Hz")
     print(f"Amplitude Scaling: {scaling}")
-    print(f"WAV Scaling: {wav_scaling}")
+    print(f"Experiment Length: {length} seconds")
 
     audio_queue = mp.Queue()
     audio_process = mp.Process(
@@ -308,8 +406,6 @@ if __name__ == "__main__":
             selected_device_id,
             selected_sample_rate,
             blocksize,
-            file_name,
-            wav_scaling,
         ),
     )
     audio_process.daemon = True
@@ -323,4 +419,6 @@ if __name__ == "__main__":
         min_frequency,
         max_frequency,
         scaling,
+        experiment_folder_path,
+        length,
     )
