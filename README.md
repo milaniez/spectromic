@@ -1,2 +1,2 @@
 # spectromic
-Microphone input spectrogram live view
+Live spectrogram analyzer
